@@ -286,17 +286,21 @@ select option{background:var(--sf2)}
 
   <!-- AI Screenshot -->
   <div class="card">
-    <div class="ct">AI 圖表截圖判讀</div>
+    <div class="ct">AI 多時框分析</div>
+    <div style="font-size:12px;color:var(--txd);margin-bottom:8px;line-height:1.6">
+      上傳日線、60分、15分、5分截圖，AI 自動套用三重確認策略，直接給出做多／做空／觀望建議。
+    </div>
     <div class="ai-drop" id="ai-drop" onclick="document.getElementById('ai-file').click()">
-      📎 點擊選圖・拖曳・或 Ctrl+V 貼上截圖
+      📸 點擊選圖・拖曳・或 Ctrl+V 貼上截圖<br>
+      <span style="font-size:11px">建議上傳：日線 + 60分 + 15分 + 5分（最少1張）</span>
       <input type="file" id="ai-file" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files)">
     </div>
     <div id="ai-imgs"></div>
     <div id="ai-act" style="display:none;margin-top:10px">
-      <button class="btn btc bfw" id="ai-btn" onclick="analyzeImages()">🤖 開始 AI 判讀</button>
+      <button class="btn btc bfw" id="ai-btn" onclick="analyzeImages()">🤖 AI 綜合分析</button>
     </div>
     <div id="ai-res"></div>
-    <div class="note-sm" style="margin-top:8px">⚠ AI 判讀為輔助參考，圖表模糊時準確度降低，請自行核對。每次消耗您的 API 額度。</div>
+    <div class="note-sm" style="margin-top:8px">⚠ AI 判讀僅供輔助，圖表模糊或資訊不足時準確度降低。每次消耗您的 API 額度。</div>
   </div>
 </div>
 
@@ -880,67 +884,58 @@ function renderAIImgs(){
 }
 function removeAIImg(i){aiImages.splice(i,1);renderAIImgs();}
 
-function buildEngineContext(){
-  // Build current plan state as context string for AI
-  var lines=[];
-  var pdH=document.getElementById('pd-h').value;
-  var pdL=document.getElementById('pd-l').value;
-  var orH=document.getElementById('or-h').value;
-  var orL=document.getElementById('or-l').value;
-  var curP=document.getElementById('e-cur').value;
-  if(pdH||pdL)lines.push('前日高：'+(pdH||'未設')+'　前日低：'+(pdL||'未設'));
-  if(orH||orL)lines.push('開盤區間高：'+(orH||'未設')+'　開盤區間低：'+(orL||'未設'));
-  if(curP)lines.push('目前已知價格：'+curP);
-  if(PLAN.levels&&PLAN.levels.length){
-    lines.push('重要關卡：'+PLAN.levels.map(function(l){return l.price+(l.note?'('+l.note+')':'');}).join('、'));
-  }
-  if(PLAN.biasManual&&PLAN.bias){
-    var lb={bull:'偏多',bear:'偏空',neutral:'中性'};
-    lines.push('使用者手動設定偏向：'+(lb[PLAN.bias]||PLAN.bias));
-  }
-  return lines.length?lines.join('\n'):'（尚未輸入任何參數）';
-}
-
 async function analyzeImages(){
   if(!CFG.apiKey){tip('請先在設定中輸入 Claude API Key');return;}
   if(!aiImages.length){tip('請先上傳圖表截圖');return;}
   var btn=document.getElementById('ai-btn');
-  btn.disabled=true;btn.textContent='⏳ 判讀中...';
-  var resEl=document.getElementById('ai-res');resEl.innerHTML='';resEl.style.display='block';
+  btn.disabled=true;btn.textContent='⏳ 分析中...';
+  var resEl=document.getElementById('ai-res');resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 正在綜合分析 '+aiImages.length+' 張圖表...</div>';resEl.style.display='block';
 
-  var engineCtx=buildEngineContext();
-  var sysPrompt='你是澳幣期貨（AUD/USD）當沖決策輔助系統的技術分析模組。\n'+
-    '使用者採用「三重確認」進場框架：\n'+
-    '  Layer 1（日線方向）：目前價格突破前日高 → 偏多；跌破前日低 → 偏空；居中 → 中性\n'+
-    '  Layer 2（15分結構）：站上開盤區間高點 → 偏多；跌破開盤區間低點 → 偏空；區間內 → 中性\n'+
-    '  Layer 3（5分觸發）：出現符合方向的K棒型態（收紅站穩/收黑跌破/量增方向確認）\n'+
-    '進場條件：三層全部符合且方向一致。\n'+
-    '使用者目前的參數：\n'+engineCtx+'\n\n'+
-    '請依據上述規則分析截圖。價格轉為點數（AUD/USD × 10000，例如0.6500 = 6500）。'+
-    '圖表模糊或看不清楚時 confidence 設 low。嚴格輸出JSON陣列，不加任何前綴後綴。';
+  var sysPrompt=
+    '你是一位澳幣期貨（AUD/USD，台灣稱 AD）當沖交易教練。\n'+
+    '使用者會給你多張不同時間框架的K線截圖，你要從圖表本身讀出所有資訊，\n'+
+    '依照以下「三重確認」策略，給出一個明確的交易建議。\n\n'+
+    '【三重確認進場策略】\n'+
+    'Layer 1 — 日線方向（大框架）\n'+
+    '  從日線圖判斷：今日是否已突破前日高（偏多）或跌破前日低（偏空）。\n'+
+    '  若在前日高低之間則為中性，不符合進場。\n\n'+
+    'Layer 2 — 15分/60分結構（中框架）\n'+
+    '  從15分或60分圖判斷：價格是否已站上今日開盤後的區間高點（偏多），\n'+
+    '  或跌破區間低點（偏空）。若仍在開盤整理區間內則為中性。\n\n'+
+    'Layer 3 — 5分觸發（入場時機）\n'+
+    '  從5分圖判斷：是否出現方向一致的進場K棒型態，例如：\n'+
+    '  偏多：收紅K站穩關鍵位、量增突破、假跌破後反彈插針\n'+
+    '  偏空：收黑K跌破關鍵位、量增崩跌、假突破後反彈插針\n\n'+
+    '【進場條件】三層全部符合且方向一致 → GO；任一層不符 → 觀望。\n\n'+
+    '【輸出規則】\n'+
+    '- 只輸出一個JSON物件，代表綜合所有圖表後的最終判斷\n'+
+    '- 價格單位：點數（AUD/USD × 10000，例如0.6500 = 6500）\n'+
+    '- 圖表模糊時 confidence 設 low，並在 notes 說明\n'+
+    '- 嚴格只輸出JSON，不加任何說明文字、不加markdown代碼塊';
 
-  var userPrompt='分析以上'+aiImages.length+'張澳幣期貨K線圖，依照三重確認框架判斷，回傳JSON陣列：\n'+
-    '[{\n'+
-    '  "period": "週期",\n'+
-    '  "bias": "bull/bear/neutral",\n'+
-    '  "biasReason": "50字以內說明，明確引用圖中可見的價格位置",\n'+
-    '  "layer1": {"result": "bull/bear/neutral/unknown", "reason": "日線方向判斷依據"},\n'+
-    '  "layer2": {"result": "bull/bear/neutral/unknown", "reason": "15分結構判斷依據"},\n'+
-    '  "layer3": {"result": "bull/bear/neutral/unknown", "reason": "5分觸發型態"},\n'+
-    '  "engineSignal": "go_long/go_short/wait",\n'+
-    '  "currentPrice": 點數或null,\n'+
-    '  "openRangeHigh": 點數或null,\n'+
-    '  "openRangeLow": 點數或null,\n'+
-    '  "prevDayHigh": 點數或null,\n'+
-    '  "prevDayLow": 點數或null,\n'+
-    '  "kPatterns": ["收紅站穩"/"收黑跌破"/"假突破插針"/"量增↑"/"量縮↓"],\n'+
-    '  "confidence": "high/medium/low",\n'+
-    '  "notes": "補充觀察或警示"\n'+
-    '}]';
+  var userPrompt=
+    '以下是 '+aiImages.length+' 張澳幣期貨K線圖（每張標有時間框架）。\n'+
+    '請綜合分析所有圖表，依照三重確認策略，輸出一個JSON物件：\n'+
+    '{\n'+
+    '  "finalSignal": "go_long 或 go_short 或 wait",\n'+
+    '  "confidence": "high 或 medium 或 low",\n'+
+    '  "summary": "用50字以內說明為何現在適合/不適合進場，要具體引用圖中看到的現象",\n'+
+    '  "layer1": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明，引用圖中價格或K棒位置"},\n'+
+    '  "layer2": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明"},\n'+
+    '  "layer3": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明，包含型態名稱"},\n'+
+    '  "currentPrice": 從圖中讀到的最新價格點數或null,\n'+
+    '  "prevDayHigh": 從日線圖讀到的前日高點數或null,\n'+
+    '  "prevDayLow": 從日線圖讀到的前日低點數或null,\n'+
+    '  "openRangeHigh": 從圖中判斷的今日開盤區間高點數或null,\n'+
+    '  "openRangeLow": 從圖中判斷的今日開盤區間低點數或null,\n'+
+    '  "kPatterns": ["列出5分圖中觀察到的型態"],\n'+
+    '  "waitReason": "若 finalSignal 為 wait，說明缺少哪一層確認；若 GO 則填 null",\n'+
+    '  "riskNote": "任何需要注意的風險或市場狀況，如接近重大阻力、量能異常等"\n'+
+    '}';
 
   var content=[];
   aiImages.forEach(function(img,i){
-    content.push({type:'text',text:'圖 '+(i+1)+'（'+img.period+'）：'});
+    content.push({type:'text',text:'【圖 '+(i+1)+'】時間框架：'+img.period});
     content.push({type:'image',source:{type:'base64',media_type:img.type,data:img.data}});
   });
   content.push({type:'text',text:userPrompt});
@@ -949,59 +944,95 @@ async function analyzeImages(){
     var resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:3000,
+      body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:2000,
         system:sysPrompt,
         messages:[{role:'user',content:content}]})
     });
     if(!resp.ok){var err=await resp.json();throw new Error(err.error&&err.error.message||'HTTP '+resp.status);}
     var data=await resp.json();
     var text=data.content[0].text.trim();
-    var m=text.match(/\[[\s\S]*\]/);
-    if(!m)throw new Error('回應格式非JSON陣列');
-    var results=JSON.parse(m[0]);
-    renderAIResults(results);
+    // Try to parse JSON object
+    var m=text.match(/\{[\s\S]*\}/);
+    if(!m)throw new Error('AI 回應格式錯誤，請重試');
+    var result=JSON.parse(m[0]);
+    renderAIResult(result);
   }catch(e){
-    resEl.innerHTML='<div style="padding:10px;color:var(--rd);font-size:13px">❌ 判讀失敗：'+e.message+'</div>';
+    resEl.innerHTML='<div style="padding:12px;color:var(--rd);font-size:13px;border-radius:8px;background:rgba(248,81,73,.1)">❌ 判讀失敗：'+e.message+'</div>';
   }finally{
-    btn.disabled=false;btn.textContent='🤖 開始 AI 判讀';
+    btn.disabled=false;btn.textContent='🤖 重新分析';
   }
 }
 
-function renderAIResults(results){
+function renderAIResult(r){
   var resEl=document.getElementById('ai-res');
-  var bLblMap={bull:'偏多',bear:'偏空',neutral:'中性'};
-  var bClsMap={bull:'vp',bear:'vn',neutral:''};
+  var sig=r.finalSignal||'wait';
   var confLbl={high:'高',medium:'中',low:'低'};
-  var confCls={high:'vp',medium:'',low:'vn'};
-  var sigMap={go_long:'✅ GO 做多',go_short:'✅ GO 做空',wait:'⏸ 觀望'};
-  var sigCls={go_long:'vp',go_short:'vn',wait:''};
-  var lrLbl={bull:'偏多',bear:'偏空',neutral:'中性',unknown:'?'};
-  var lrCls={bull:'ebadge ebadge-bull',bear:'ebadge ebadge-bear',neutral:'ebadge ebadge-ntl',unknown:'ebadge ebadge-none'};
-  resEl.innerHTML='<div style="font-size:12px;color:var(--txd);margin:10px 0 6px">AI 判讀結果（依三重確認框架）：</div>'+
-  results.map(function(r){
-    var pat=(r.kPatterns||[]).join('、')||'—';
-    var l1=r.layer1||{result:'unknown',reason:'—'};
-    var l2=r.layer2||{result:'unknown',reason:'—'};
-    var l3=r.layer3||{result:'unknown',reason:'—'};
-    var sig=r.engineSignal||'wait';
-    return'<div class="ai-res-item">'+
-      '<div class="ai-res-hd">'+
-        '<span class="ai-period-tag">'+r.period+'</span>'+
-        '<span class="'+(sigCls[sig]||'')+'" style="font-weight:800;font-size:14px">'+(sigMap[sig]||sig)+'</span>'+
-        '<span style="font-size:11px;color:var(--txd)">信心：<span class="'+confCls[r.confidence]+'">'+(confLbl[r.confidence]||r.confidence)+'</span></span>'+
-      '</div>'+
-      '<div style="font-size:12px;margin-bottom:8px;color:var(--txd)">'+(r.biasReason||'')+'</div>'+
-      // 3-layer mini display
-      '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">'+
-        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l1.result]+'">①日線 '+lrLbl[l1.result]+'</span><span style="color:var(--txd)">'+l1.reason+'</span></div>'+
-        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l2.result]+'">②結構 '+lrLbl[l2.result]+'</span><span style="color:var(--txd)">'+l2.reason+'</span></div>'+
-        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l3.result]+'">③觸發 '+lrLbl[l3.result]+'</span><span style="color:var(--txd)">'+l3.reason+'</span></div>'+
-      '</div>'+
-      '<div style="font-size:11px;color:var(--txd);margin-bottom:6px">K棒型態：'+pat+'</div>'+
-      (r.notes?'<div style="font-size:11px;color:var(--yw);margin-bottom:6px">⚠ '+r.notes+'</div>':'')+
-      '<button class="btn btc bsm" onclick="applyAIResult(\''+encodeURIComponent(JSON.stringify(r))+'\')">套用此結果</button>'+
+  var confCls={high:'vp',medium:'yw',low:'vn'};
+  var lrLbl={bull:'偏多 ▲',bear:'偏空 ▼',neutral:'中性 —'};
+  var lrBg={bull:'rgba(63,185,80,.15)',bear:'rgba(248,81,73,.15)',neutral:'rgba(139,148,158,.1)'};
+  var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)'};
+
+  var sigHTML,sigBg;
+  if(sig==='go_long'){
+    sigHTML='<div style="font-size:28px;font-weight:900;color:var(--gn)">✅ GO 做多</div>';
+    sigBg='rgba(63,185,80,.12)';
+  }else if(sig==='go_short'){
+    sigHTML='<div style="font-size:28px;font-weight:900;color:var(--rd)">✅ GO 做空</div>';
+    sigBg='rgba(248,81,73,.12)';
+  }else{
+    sigHTML='<div style="font-size:28px;font-weight:900;color:var(--txd)">⏸ 觀望</div>';
+    sigBg='rgba(139,148,158,.08)';
+  }
+
+  function layerRow(num,title,l){
+    if(!l)return'';
+    var res=l.result||'neutral';
+    return'<div style="padding:10px 12px;border-radius:8px;background:'+lrBg[res]+';margin-bottom:6px">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
+        '<span style="font-size:11px;font-weight:800;color:var(--txd)">'+num+'</span>'+
+        '<span style="font-weight:700;font-size:13px">'+title+'</span>'+
+        '<span style="font-size:12px;font-weight:700;color:'+lrColor[res]+'">'+lrLbl[res]+'</span>'+
+        (l.timeframe?'<span style="font-size:10px;color:var(--txd);margin-left:auto">'+l.timeframe+'</span>':'')+'</div>'+
+      '<div style="font-size:12px;color:var(--txd);line-height:1.5">'+(l.reason||'')+'</div>'+
     '</div>';
-  }).join('');
+  }
+
+  var pat=(r.kPatterns||[]).join('、')||'—';
+  var prices=[];
+  if(r.currentPrice)prices.push('目前 '+r.currentPrice);
+  if(r.prevDayHigh)prices.push('前日高 '+r.prevDayHigh);
+  if(r.prevDayLow)prices.push('前日低 '+r.prevDayLow);
+  if(r.openRangeHigh)prices.push('開盤區間 '+r.openRangeHigh+'–'+(r.openRangeLow||'?'));
+
+  resEl.innerHTML=
+    // Main signal card
+    '<div style="border-radius:10px;overflow:hidden;border:2px solid '+(sig==='go_long'?'var(--gn)':sig==='go_short'?'var(--rd)':'var(--br)')+'">'+
+      '<div style="background:'+sigBg+';padding:16px;text-align:center">'+
+        sigHTML+
+        '<div style="font-size:13px;color:var(--txd);margin-top:6px">'+(r.summary||'')+'</div>'+
+        '<div style="margin-top:8px;font-size:12px;color:var(--txd)">信心：<span class="'+(confCls[r.confidence]||'')+'"><strong>'+(confLbl[r.confidence]||r.confidence||'—')+'</strong></span></div>'+
+      '</div>'+
+      // Wait reason
+      (sig==='wait'&&r.waitReason?'<div style="padding:10px 14px;background:rgba(227,179,65,.08);font-size:12px;color:var(--yw);border-top:1px solid var(--br)">缺少確認：'+r.waitReason+'</div>':'')+
+    '</div>'+
+    // 3 layers
+    '<div style="margin-top:10px">'+
+      layerRow('①','日線方向',r.layer1)+
+      layerRow('②','15分結構',r.layer2)+
+      layerRow('③','5分觸發',r.layer3)+
+    '</div>'+
+    // Prices read from chart
+    (prices.length?'<div style="padding:8px 12px;background:var(--sf2);border-radius:8px;font-size:12px;color:var(--txd);margin-top:6px">📊 從圖讀取：'+prices.join('　')+'</div>':'')+
+    // K patterns
+    '<div style="font-size:12px;color:var(--txd);margin-top:6px;padding:0 2px">5分型態：'+pat+'</div>'+
+    // Risk note
+    (r.riskNote?'<div style="margin-top:8px;padding:8px 12px;background:rgba(227,179,65,.1);border-radius:8px;font-size:12px;color:var(--yw);border:1px solid rgba(227,179,65,.3)">⚠ '+r.riskNote+'</div>':'')+
+    // Apply button
+    '<div style="margin-top:10px;display:flex;gap:8px">'+
+      '<button class="btn btc bsm" style="flex:1" onclick="applyAIResult(\''+encodeURIComponent(JSON.stringify(r))+'\')">套用數值至決策引擎</button>'+
+      '<button class="btn btq bsm" onclick="document.getElementById(\'ai-res\').innerHTML=\'\';aiImages=[];renderAIImgs();">清除</button>'+
+    '</div>'+
+    '<div style="font-size:10px;color:var(--txd);margin-top:6px;text-align:center">AI 判讀僅供參考，最終進出場由使用者決定</div>';
 }
 function applyAIResult(encoded){
   var r=JSON.parse(decodeURIComponent(encoded));
@@ -1010,13 +1041,17 @@ function applyAIResult(encoded){
   if(r.openRangeLow)document.getElementById('or-l').value=r.openRangeLow;
   if(r.prevDayHigh)document.getElementById('pd-h').value=r.prevDayHigh;
   if(r.prevDayLow)document.getElementById('pd-l').value=r.prevDayLow;
+  // Auto-set bias from finalSignal
+  if(r.finalSignal==='go_long'){PLAN.bias='bull';PLAN.biasManual=false;renderBiasUI();}
+  else if(r.finalSignal==='go_short'){PLAN.bias='bear';PLAN.biasManual=false;renderBiasUI();}
   if(r.kPatterns&&r.kPatterns.length){
-    var pmap={'收紅站穩':'bull_bar','收黑跌破':'bear_bar','假突破插針':'pin_bar','量增':'vol_up','量縮':'vol_down'};
+    var pmap={'收紅站穩':'bull_bar','收黑跌破':'bear_bar','假突破插針':'pin_bar','量增↑':'vol_up','量縮↓':'vol_down','量增':'vol_up','量縮':'vol_down'};
+    PLAN.kPattern=[];
     r.kPatterns.forEach(function(p){var k=pmap[p];if(k&&PLAN.kPattern.indexOf(k)<0)PLAN.kPattern.push(k);});
     renderPatternBtns();
   }
   savePlan();runEngine();
-  tip('✅ AI 結果已套用');
+  tip('✅ AI 數值已套用，決策引擎已更新');
 }
 
 // Paste & drag-drop
