@@ -412,6 +412,8 @@ select option{background:var(--sf2)}
         </select>
       </div>
       <div class="note-sm" style="margin-top:6px">免費取得：<strong>aistudio.google.com</strong> → Get API Key → 建立金鑰</div>
+      <button class="btn btq bsm" style="margin-top:8px;width:100%" onclick="testGeminiKey()">🔍 偵測可用模型</button>
+      <div id="gemini-test-res" style="font-size:12px;margin-top:6px;color:var(--txd)"></div>
     </div>
     <!-- Anthropic -->
     <div id="anthropic-sec" style="display:none">
@@ -944,6 +946,41 @@ function renderAIImgs(){
 }
 function removeAIImg(i){aiImages.splice(i,1);renderAIImgs();}
 
+async function testGeminiKey(){
+  var el=document.getElementById('gemini-test-res');
+  if(!CFG.geminiKey){el.textContent='請先輸入 API Key';return;}
+  el.textContent='偵測中...';
+  try{
+    var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+CFG.geminiKey+'&pageSize=50');
+    if(!r.ok){var e=await r.json();el.style.color='var(--rd)';el.textContent='❌ '+(e.error&&e.error.message||'HTTP '+r.status);return;}
+    var d=await r.json();
+    var all=(d.models||[]).filter(function(m){return (m.supportedGenerationMethods||[]).indexOf('generateContent')>=0;}).map(function(m){return m.name.replace('models/','');});
+    el.style.color='var(--gn)';
+    el.textContent='✅ 可用：'+all.slice(0,5).join('、')+(all.length>5?'…':'');
+  }catch(e){el.style.color='var(--rd)';el.textContent='❌ '+e.message;}
+}
+
+async function detectGeminiModel(){
+  // Fetch available models from Google, pick best one that supports generateContent
+  try{
+    var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+CFG.geminiKey+'&pageSize=50');
+    if(!r.ok)return CFG.geminiModel||'gemini-1.5-flash';
+    var d=await r.json();
+    var all=(d.models||[]).filter(function(m){
+      return (m.supportedGenerationMethods||[]).indexOf('generateContent')>=0;
+    }).map(function(m){return m.name.replace('models/','');});
+    // Prefer flash models for speed
+    var prefer=['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash','gemini-1.5-pro','gemini-1.5-flash-8b'];
+    for(var i=0;i<prefer.length;i++){
+      var found=all.find(function(n){return n.indexOf(prefer[i])===0;});
+      if(found)return found;
+    }
+    return all[0]||'gemini-1.5-flash';
+  }catch(e){
+    return CFG.geminiModel||'gemini-1.5-flash';
+  }
+}
+
 async function analyzeImages(){
   var provider=CFG.aiProvider||'gemini';
   if(provider==='gemini'&&!CFG.geminiKey){tip('請先在設定中輸入 Google Gemini API Key');return;}
@@ -967,11 +1004,13 @@ async function analyzeImages(){
         parts.push({inline_data:{mime_type:img.type,data:img.data}});
       });
       parts.push({text:userPrompt});
-      var model=CFG.geminiModel||'gemini-1.5-flash';
+      // Auto-detect available model
+      var model=await detectGeminiModel();
+      resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 使用 '+model+' 分析中...</div>';
       var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+CFG.geminiKey,{
         method:'POST',
         headers:{'content-type':'application/json'},
-                body:JSON.stringify({
+        body:JSON.stringify({
           system_instruction:{parts:[{text:sysPrompt}]},
           contents:[{role:'user',parts:parts}],
           generationConfig:{maxOutputTokens:600,temperature:0.1}
