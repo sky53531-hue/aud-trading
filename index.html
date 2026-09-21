@@ -905,11 +905,22 @@ function handleFiles(files){
 function processFile(file){
   var reader=new FileReader();
   reader.onload=function(e){
-    var data=e.target.result;
-    var base64=data.split(',')[1];
-    var imgObj={data:base64,type:file.type,period:'15分',thumb:data,name:file.name||'圖表'};
-    aiImages.push(imgObj);
-    renderAIImgs();
+    var img=new Image();
+    img.onload=function(){
+      // Compress: max 1024px wide, 80% JPEG quality
+      var MAX=1024,q=0.80;
+      var w=img.width,h=img.height;
+      if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+      var canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      var compressed=canvas.toDataURL('image/jpeg',q);
+      var base64=compressed.split(',')[1];
+      var imgObj={data:base64,type:'image/jpeg',period:'15分',thumb:compressed,name:file.name||'圖表'};
+      aiImages.push(imgObj);
+      renderAIImgs();
+    };
+    img.src=e.target.result;
   };
   reader.readAsDataURL(file);
 }
@@ -985,6 +996,9 @@ async function analyzeImages(){
 
   try{
     var text='';
+    // 45 second timeout
+    var controller=new AbortController();
+    var timeoutId=setTimeout(function(){controller.abort();},45000);
     if((CFG.aiProvider||'gemini')==='gemini'){
       // ── Gemini ────────────────────────────────────────
       var parts=[];
@@ -997,12 +1011,14 @@ async function analyzeImages(){
       var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+CFG.geminiKey,{
         method:'POST',
         headers:{'content-type':'application/json'},
+        signal:controller.signal,
         body:JSON.stringify({
           system_instruction:{parts:[{text:sysPrompt}]},
           contents:[{role:'user',parts:parts}],
-          generationConfig:{maxOutputTokens:2000,temperature:0.1}
+          generationConfig:{maxOutputTokens:1500,temperature:0.1}
         })
       });
+      clearTimeout(timeoutId);
       if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
       var data=await resp.json();
       if(data.promptFeedback&&data.promptFeedback.blockReason)throw new Error('Gemini 拒絕：'+data.promptFeedback.blockReason);
@@ -1018,8 +1034,10 @@ async function analyzeImages(){
       var resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:2000,system:sysPrompt,messages:[{role:'user',content:content}]})
+        signal:controller.signal,
+        body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:1500,system:sysPrompt,messages:[{role:'user',content:content}]})
       });
+      clearTimeout(timeoutId);
       if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
       var data=await resp.json();
       text=data.content[0].text.trim();
@@ -1029,7 +1047,8 @@ async function analyzeImages(){
     var result=JSON.parse(m[0]);
     renderAIResult(result);
   }catch(e){
-    resEl.innerHTML='<div style="padding:12px;color:var(--rd);font-size:13px;border-radius:8px;background:rgba(248,81,73,.1)">❌ 判讀失敗：'+e.message+'</div>';
+    var msg=e.name==='AbortError'?'逾時（45秒），請重試，或減少上傳圖片數量':e.message;
+    resEl.innerHTML='<div style="padding:12px;color:var(--rd);font-size:13px;border-radius:8px;background:rgba(248,81,73,.1)">❌ 判讀失敗：'+msg+'</div>';
   }finally{
     btn.disabled=false;btn.textContent='🤖 重新分析';
   }
