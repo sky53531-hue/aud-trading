@@ -389,20 +389,46 @@ select option{background:var(--sf2)}
     <div class="fd" style="margin-bottom:0"><label>每日最多交易次數</label><input type="number" id="s-maxt" value="3" min="1" max="20" onchange="saveCfg()"></div>
   </div>
   <div class="card">
-    <div class="ct">Claude API 設定（截圖判讀用）</div>
+    <div class="ct">AI 圖表判讀設定</div>
     <div class="fd">
-      <label>Anthropic API Key</label>
-      <input type="password" id="s-apikey" placeholder="sk-ant-..." oninput="saveApiKey()">
-    </div>
-    <div class="fd" style="margin-bottom:0">
-      <label>判讀模型</label>
-      <select id="s-model" onchange="saveCfg()">
-        <option value="claude-haiku-4-5-20251001">claude-haiku-4-5（快速·省錢）</option>
-        <option value="claude-sonnet-5" selected>claude-sonnet-5（推薦）</option>
-        <option value="claude-opus-5">claude-opus-5（最精確）</option>
+      <label>AI 供應商</label>
+      <select id="s-provider" onchange="switchProvider()">
+        <option value="gemini">Google Gemini（免費）</option>
+        <option value="anthropic">Anthropic Claude（付費）</option>
       </select>
     </div>
-    <div class="note-sm" style="margin-top:8px">🔒 API Key 僅存於本機瀏覽器 localStorage，不會上傳至任何伺服器</div>
+    <!-- Gemini -->
+    <div id="gemini-sec">
+      <div class="fd">
+        <label>Google Gemini API Key（免費）</label>
+        <input type="password" id="s-geminikey" placeholder="AIza..." oninput="saveApiKeys()">
+      </div>
+      <div class="fd" style="margin-bottom:0">
+        <label>Gemini 模型</label>
+        <select id="s-geminimodel" onchange="saveCfg()">
+          <option value="gemini-2.0-flash">gemini-2.0-flash（免費·推薦）</option>
+          <option value="gemini-1.5-flash">gemini-1.5-flash（免費）</option>
+          <option value="gemini-1.5-pro">gemini-1.5-pro（免費額度較少）</option>
+        </select>
+      </div>
+      <div class="note-sm" style="margin-top:6px">免費取得：<strong>aistudio.google.com</strong> → Get API Key → 建立金鑰</div>
+    </div>
+    <!-- Anthropic -->
+    <div id="anthropic-sec" style="display:none">
+      <div class="fd">
+        <label>Anthropic API Key</label>
+        <input type="password" id="s-apikey" placeholder="sk-ant-..." oninput="saveApiKeys()">
+      </div>
+      <div class="fd" style="margin-bottom:0">
+        <label>Claude 模型</label>
+        <select id="s-model" onchange="saveCfg()">
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5（省錢）</option>
+          <option value="claude-sonnet-5" selected>claude-sonnet-5</option>
+          <option value="claude-opus-5">claude-opus-5</option>
+        </select>
+      </div>
+    </div>
+    <div class="note-sm" style="margin-top:8px">🔒 API Key 僅存於本機瀏覽器，不會上傳至任何伺服器</div>
   </div>
   <div class="card">
     <div class="ct">提醒設定</div>
@@ -457,7 +483,7 @@ select option{background:var(--sf2)}
 <script>
 'use strict';
 // ── DATA ──────────────────────────────────────────────
-var CFG={rate:30,capital:500000,riskPct:2,dailyLimit:10000,dailyMaxTrades:3,notif:false,alertClose:false,signalAlert:false,model:'claude-sonnet-5'};
+var CFG={rate:30,capital:500000,riskPct:2,dailyLimit:10000,dailyMaxTrades:3,notif:false,alertClose:false,signalAlert:false,model:'claude-sonnet-5',aiProvider:'gemini',geminiKey:'',geminiModel:'gemini-2.0-flash',apiKey:''};
 var PLAN={bias:'',biasManual:false,dxy:false,orH:'',orL:'',pdH:'',pdL:'',levels:[],note:'',curPrice:'',todayH:'',todayL:'',kPattern:[]};
 var TRADES=[];
 var CL_DATA={};
@@ -532,13 +558,23 @@ function saveCfg(){
   CFG.dailyLimit=parseInt(document.getElementById('s-dlim').value)||10000;
   CFG.dailyMaxTrades=parseInt(document.getElementById('s-maxt').value)||3;
   CFG.model=document.getElementById('s-model').value||'claude-sonnet-5';
+  CFG.aiProvider=document.getElementById('s-provider').value||'gemini';
+  CFG.geminiModel=document.getElementById('s-geminimodel').value||'gemini-2.0-flash';
   localStorage.setItem('aud_cfg',JSON.stringify(CFG));
   document.getElementById('ptv').textContent=pv();
   renderPnL();renderStatSummary();tip('設定已儲存');
 }
-function saveApiKey(){
+function saveApiKeys(){
   CFG.apiKey=document.getElementById('s-apikey').value.trim();
+  CFG.geminiKey=document.getElementById('s-geminikey').value.trim();
   localStorage.setItem('aud_cfg',JSON.stringify(CFG));
+}
+function switchProvider(){
+  CFG.aiProvider=document.getElementById('s-provider').value;
+  localStorage.setItem('aud_cfg',JSON.stringify(CFG));
+  var isGemini=CFG.aiProvider==='gemini';
+  document.getElementById('gemini-sec').style.display=isGemini?'block':'none';
+  document.getElementById('anthropic-sec').style.display=isGemini?'none':'block';
 }
 function savePlan(){
   PLAN.orH=document.getElementById('or-h').value;
@@ -885,7 +921,9 @@ function renderAIImgs(){
 function removeAIImg(i){aiImages.splice(i,1);renderAIImgs();}
 
 async function analyzeImages(){
-  if(!CFG.apiKey){tip('請先在設定中輸入 Claude API Key');return;}
+  var provider=CFG.aiProvider||'gemini';
+  if(provider==='gemini'&&!CFG.geminiKey){tip('請先在設定中輸入 Google Gemini API Key');return;}
+  if(provider==='anthropic'&&!CFG.apiKey){tip('請先在設定中輸入 Anthropic API Key');return;}
   if(!aiImages.length){tip('請先上傳圖表截圖');return;}
   var btn=document.getElementById('ai-btn');
   btn.disabled=true;btn.textContent='⏳ 分析中...';
@@ -933,25 +971,47 @@ async function analyzeImages(){
     '  "riskNote": "任何需要注意的風險或市場狀況，如接近重大阻力、量能異常等"\n'+
     '}';
 
-  var content=[];
-  aiImages.forEach(function(img,i){
-    content.push({type:'text',text:'【圖 '+(i+1)+'】時間框架：'+img.period});
-    content.push({type:'image',source:{type:'base64',media_type:img.type,data:img.data}});
-  });
-  content.push({type:'text',text:userPrompt});
-
   try{
-    var resp=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:2000,
-        system:sysPrompt,
-        messages:[{role:'user',content:content}]})
-    });
-    if(!resp.ok){var err=await resp.json();throw new Error(err.error&&err.error.message||'HTTP '+resp.status);}
-    var data=await resp.json();
-    var text=data.content[0].text.trim();
-    // Try to parse JSON object
+    var text='';
+    if((CFG.aiProvider||'gemini')==='gemini'){
+      // ── Gemini ────────────────────────────────────────
+      var parts=[];
+      aiImages.forEach(function(img,i){
+        parts.push({text:'【圖 '+(i+1)+'】時間框架：'+img.period});
+        parts.push({inline_data:{mime_type:img.type,data:img.data}});
+      });
+      parts.push({text:userPrompt});
+      var model=CFG.geminiModel||'gemini-2.0-flash';
+      var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+CFG.geminiKey,{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({
+          system_instruction:{parts:[{text:sysPrompt}]},
+          contents:[{role:'user',parts:parts}],
+          generationConfig:{maxOutputTokens:2000,temperature:0.1}
+        })
+      });
+      if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
+      var data=await resp.json();
+      if(data.promptFeedback&&data.promptFeedback.blockReason)throw new Error('Gemini 拒絕：'+data.promptFeedback.blockReason);
+      text=(data.candidates[0].content.parts[0].text||'').trim();
+    }else{
+      // ── Anthropic ─────────────────────────────────────
+      var content=[];
+      aiImages.forEach(function(img,i){
+        content.push({type:'text',text:'【圖 '+(i+1)+'】時間框架：'+img.period});
+        content.push({type:'image',source:{type:'base64',media_type:img.type,data:img.data}});
+      });
+      content.push({type:'text',text:userPrompt});
+      var resp=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:2000,system:sysPrompt,messages:[{role:'user',content:content}]})
+      });
+      if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
+      var data=await resp.json();
+      text=data.content[0].text.trim();
+    }
     var m=text.match(/\{[\s\S]*\}/);
     if(!m)throw new Error('AI 回應格式錯誤，請重試');
     var result=JSON.parse(m[0]);
@@ -1075,7 +1135,13 @@ function loadUI(){
   document.getElementById('s-dlim').value=CFG.dailyLimit;
   document.getElementById('s-maxt').value=CFG.dailyMaxTrades||3;
   document.getElementById('s-model').value=CFG.model||'claude-sonnet-5';
+  document.getElementById('s-provider').value=CFG.aiProvider||'gemini';
+  document.getElementById('s-geminimodel').value=CFG.geminiModel||'gemini-2.0-flash';
   if(CFG.apiKey)document.getElementById('s-apikey').value=CFG.apiKey;
+  if(CFG.geminiKey)document.getElementById('s-geminikey').value=CFG.geminiKey;
+  var isGemini=(CFG.aiProvider||'gemini')==='gemini';
+  document.getElementById('gemini-sec').style.display=isGemini?'block':'none';
+  document.getElementById('anthropic-sec').style.display=isGemini?'none':'block';
   document.getElementById('notif-sw').className='sw '+(CFG.notif?'on':'off');
   document.getElementById('alert-sw').className='sw '+(CFG.alertClose?'on':'off');
   document.getElementById('signal-sw').className='sw '+(CFG.signalAlert?'on':'off');
