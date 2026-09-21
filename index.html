@@ -908,7 +908,7 @@ function processFile(file){
     var img=new Image();
     img.onload=function(){
       // Compress: max 1024px wide, 80% JPEG quality
-      var MAX=1024,q=0.80;
+      var MAX=768,q=0.65;
       var w=img.width,h=img.height;
       if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
       var canvas=document.createElement('canvas');
@@ -916,7 +916,8 @@ function processFile(file){
       canvas.getContext('2d').drawImage(img,0,0,w,h);
       var compressed=canvas.toDataURL('image/jpeg',q);
       var base64=compressed.split(',')[1];
-      var imgObj={data:base64,type:'image/jpeg',period:'15分',thumb:compressed,name:file.name||'圖表'};
+      var kb=Math.round(base64.length*0.75/1024);
+      var imgObj={data:base64,type:'image/jpeg',period:'15分',thumb:compressed,name:file.name||'圖表',kb:kb};
       aiImages.push(imgObj);
       renderAIImgs();
     };
@@ -932,7 +933,7 @@ function renderAIImgs(){
     return'<div class="ai-img-row">'+
       '<img src="'+img.thumb+'" alt="">'+
       '<div style="flex:1;min-width:0">'+
-        '<div style="font-size:12px;color:var(--txd);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+img.name+'</div>'+
+        '<div style="font-size:12px;color:var(--txd);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+img.name+(img.kb?' <span style="color:var(--gn)">'+img.kb+'KB</span>':'')+'</div>'+
         '<select style="font-size:12px;padding:4px 8px;width:auto" onchange="aiImages['+i+'].period=this.value">'+
           ['日線','60分','30分','15分','5分'].map(function(p){return'<option value="'+p+'"'+(img.period===p?' selected':'')+'>'+p+'</option>';}).join('')+
         '</select>'+
