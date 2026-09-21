@@ -1008,7 +1008,7 @@ async function analyzeImages(){
       // Auto-detect available model
       var model=await detectGeminiModel();
       resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 使用 '+model+' 分析中...</div>';
-      var gemPayload={contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:600,temperature:0.1}};
+      var gemPayload={contents:[{role:'user',parts:parts}],generationConfig:{maxOutputTokens:600,temperature:0.1,responseMimeType:'application/json'}};
       var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+CFG.geminiKey,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(gemPayload)});
       if(!resp.ok){
         var errBody=await resp.json();
