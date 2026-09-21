@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>AUD 當沖決策</title>
 <meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AUD 決策">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#0d1117;--sf:#161b22;--sf2:#21262d;--br:#30363d;--tc:#2dd4bf;--tcd:#1a8072;--gn:#3fb950;--rd:#f85149;--yw:#e3b341;--tx:#e6edf3;--txd:#8b949e;--tab-h:60px;--hd-h:58px}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -993,6 +999,22 @@ function init(){
   tick();setInterval(tick,1000);
 }
 init();
+
+// Service Worker registration
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').then(function(reg){
+      reg.addEventListener('updatefound', function(){
+        var nw = reg.installing;
+        nw.addEventListener('statechange', function(){
+          if(nw.state==='installed'&&navigator.serviceWorker.controller){
+            tip('🔄 已有新版本，重新開啟 App 生效');
+          }
+        });
+      });
+    }).catch(function(e){console.log('SW error:',e);});
+  });
+}
 </script>
 </body>
 </html>
