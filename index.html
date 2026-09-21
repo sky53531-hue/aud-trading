@@ -952,47 +952,9 @@ async function analyzeImages(){
   btn.disabled=true;btn.textContent='⏳ 分析中...';
   var resEl=document.getElementById('ai-res');resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 正在綜合分析 '+aiImages.length+' 張圖表...</div>';resEl.style.display='block';
 
-  var sysPrompt=
-    '你是一位澳幣期貨（AUD/USD，台灣稱 AD）當沖交易教練。\n'+
-    '使用者會給你多張不同時間框架的K線截圖，你要從圖表本身讀出所有資訊，\n'+
-    '依照以下「三重確認」策略，給出一個明確的交易建議。\n\n'+
-    '【三重確認進場策略】\n'+
-    'Layer 1 — 日線方向（大框架）\n'+
-    '  從日線圖判斷：今日是否已突破前日高（偏多）或跌破前日低（偏空）。\n'+
-    '  若在前日高低之間則為中性，不符合進場。\n\n'+
-    'Layer 2 — 15分/60分結構（中框架）\n'+
-    '  從15分或60分圖判斷：價格是否已站上今日開盤後的區間高點（偏多），\n'+
-    '  或跌破區間低點（偏空）。若仍在開盤整理區間內則為中性。\n\n'+
-    'Layer 3 — 5分觸發（入場時機）\n'+
-    '  從5分圖判斷：是否出現方向一致的進場K棒型態，例如：\n'+
-    '  偏多：收紅K站穩關鍵位、量增突破、假跌破後反彈插針\n'+
-    '  偏空：收黑K跌破關鍵位、量增崩跌、假突破後反彈插針\n\n'+
-    '【進場條件】三層全部符合且方向一致 → GO；任一層不符 → 觀望。\n\n'+
-    '【輸出規則】\n'+
-    '- 只輸出一個JSON物件，代表綜合所有圖表後的最終判斷\n'+
-    '- 價格單位：點數（AUD/USD × 10000，例如0.6500 = 6500）\n'+
-    '- 圖表模糊時 confidence 設 low，並在 notes 說明\n'+
-    '- 嚴格只輸出JSON，不加任何說明文字、不加markdown代碼塊';
+  var sysPrompt='AUD/USD期貨當沖分析。三重確認策略：L1日線突破前日高偏多/跌破前日低偏空；L2站上開盤區間高偏多/跌破低偏空；L3有5分鐘觸發K棒。三層同向→GO，否則→wait。只輸出JSON，不加任何文字。';
 
-  var userPrompt=
-    '以下是 '+aiImages.length+' 張澳幣期貨K線圖（每張標有時間框架）。\n'+
-    '請綜合分析所有圖表，依照三重確認策略，輸出一個JSON物件：\n'+
-    '{\n'+
-    '  "finalSignal": "go_long 或 go_short 或 wait",\n'+
-    '  "confidence": "high 或 medium 或 low",\n'+
-    '  "summary": "用50字以內說明為何現在適合/不適合進場，要具體引用圖中看到的現象",\n'+
-    '  "layer1": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明，引用圖中價格或K棒位置"},\n'+
-    '  "layer2": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明"},\n'+
-    '  "layer3": {"result": "bull 或 bear 或 neutral", "timeframe": "從哪張圖判斷", "reason": "具體說明，包含型態名稱"},\n'+
-    '  "currentPrice": 從圖中讀到的最新價格點數或null,\n'+
-    '  "prevDayHigh": 從日線圖讀到的前日高點數或null,\n'+
-    '  "prevDayLow": 從日線圖讀到的前日低點數或null,\n'+
-    '  "openRangeHigh": 從圖中判斷的今日開盤區間高點數或null,\n'+
-    '  "openRangeLow": 從圖中判斷的今日開盤區間低點數或null,\n'+
-    '  "kPatterns": ["列出5分圖中觀察到的型態"],\n'+
-    '  "waitReason": "若 finalSignal 為 wait，說明缺少哪一層確認；若 GO 則填 null",\n'+
-    '  "riskNote": "任何需要注意的風險或市場狀況，如接近重大阻力、量能異常等"\n'+
-    '}';
+  var userPrompt='分析這'+aiImages.length+'張K線圖，輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral","reason":"10字"},"layer2":{"result":"bull/bear/neutral","reason":"10字"},"layer3":{"result":"bull/bear/neutral","reason":"10字"},"currentPrice":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"waitReason":null}';
 
   try{
     var text='';
@@ -1011,7 +973,7 @@ async function analyzeImages(){
                 body:JSON.stringify({
           system_instruction:{parts:[{text:sysPrompt}]},
           contents:[{role:'user',parts:parts}],
-          generationConfig:{maxOutputTokens:1500,temperature:0.1}
+          generationConfig:{maxOutputTokens:600,temperature:0.1}
         })
       });
       if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
@@ -1029,7 +991,7 @@ async function analyzeImages(){
       var resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-                body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:1500,system:sysPrompt,messages:[{role:'user',content:content}]})
+                body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:600,system:sysPrompt,messages:[{role:'user',content:content}]})
       });
       if(!resp.ok){var err=await resp.json();throw new Error((err.error&&err.error.message)||'HTTP '+resp.status);}
       var data=await resp.json();
