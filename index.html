@@ -453,6 +453,11 @@ select option{background:var(--sf2)}
       <button class="btn btr bfw" onclick="clearAll()">⚠ 清除全部資料</button>
     </div>
   </div>
+  <div class="card">
+    <div class="ct">App 更新</div>
+    <button class="btn btq bfw" onclick="forceUpdate()" style="border-color:var(--tc);color:var(--tc)">🔄 強制清除快取並更新</button>
+    <div class="note-sm" style="margin-top:6px">若 App 顯示舊版本，點此強制抓取最新版（交易記錄不會消失）</div>
+  </div>
   <div class="card" style="text-align:center">
     <div style="font-size:12px;color:var(--txd)">AUD 當沖決策輔助 v2.0</div>
     <div style="font-size:11px;color:var(--txd);margin-top:4px">資料僅存於本機 · 深色主題 · 繁體中文</div>
@@ -879,6 +884,13 @@ function clearAll(){
   TRADES=[];PLAN={bias:'',biasManual:false,dxy:false,orH:'',orL:'',pdH:'',pdL:'',levels:[],note:'',curPrice:'',todayH:'',todayL:'',kPattern:[]};
   CL_DATA={};CFG={rate:30,capital:500000,riskPct:2,dailyLimit:10000,dailyMaxTrades:3,notif:false,alertClose:false,signalAlert:false,model:'claude-sonnet-5'};
   init();tip('⚠ 全部資料已清除');
+}
+
+function forceUpdate(){
+  tip('🔄 正在清除快取...');
+  var clearCaches=caches&&caches.keys?caches.keys().then(function(keys){return Promise.all(keys.map(function(k){return caches.delete(k);}));}):Promise.resolve();
+  var clearSW='serviceWorker' in navigator?navigator.serviceWorker.getRegistrations().then(function(regs){return Promise.all(regs.map(function(r){return r.unregister();}));}):Promise.resolve();
+  Promise.all([clearCaches,clearSW]).then(function(){location.reload(true);}).catch(function(){location.reload(true);});
 }
 
 // ── SETTINGS TOGGLES ─────────────────────────────────
