@@ -880,24 +880,77 @@ function renderAIImgs(){
 }
 function removeAIImg(i){aiImages.splice(i,1);renderAIImgs();}
 
+function buildEngineContext(){
+  // Build current plan state as context string for AI
+  var lines=[];
+  var pdH=document.getElementById('pd-h').value;
+  var pdL=document.getElementById('pd-l').value;
+  var orH=document.getElementById('or-h').value;
+  var orL=document.getElementById('or-l').value;
+  var curP=document.getElementById('e-cur').value;
+  if(pdH||pdL)lines.push('前日高：'+(pdH||'未設')+'　前日低：'+(pdL||'未設'));
+  if(orH||orL)lines.push('開盤區間高：'+(orH||'未設')+'　開盤區間低：'+(orL||'未設'));
+  if(curP)lines.push('目前已知價格：'+curP);
+  if(PLAN.levels&&PLAN.levels.length){
+    lines.push('重要關卡：'+PLAN.levels.map(function(l){return l.price+(l.note?'('+l.note+')':'');}).join('、'));
+  }
+  if(PLAN.biasManual&&PLAN.bias){
+    var lb={bull:'偏多',bear:'偏空',neutral:'中性'};
+    lines.push('使用者手動設定偏向：'+(lb[PLAN.bias]||PLAN.bias));
+  }
+  return lines.length?lines.join('\n'):'（尚未輸入任何參數）';
+}
+
 async function analyzeImages(){
   if(!CFG.apiKey){tip('請先在設定中輸入 Claude API Key');return;}
   if(!aiImages.length){tip('請先上傳圖表截圖');return;}
   var btn=document.getElementById('ai-btn');
   btn.disabled=true;btn.textContent='⏳ 判讀中...';
   var resEl=document.getElementById('ai-res');resEl.innerHTML='';resEl.style.display='block';
+
+  var engineCtx=buildEngineContext();
+  var sysPrompt='你是澳幣期貨（AUD/USD）當沖決策輔助系統的技術分析模組。\n'+
+    '使用者採用「三重確認」進場框架：\n'+
+    '  Layer 1（日線方向）：目前價格突破前日高 → 偏多；跌破前日低 → 偏空；居中 → 中性\n'+
+    '  Layer 2（15分結構）：站上開盤區間高點 → 偏多；跌破開盤區間低點 → 偏空；區間內 → 中性\n'+
+    '  Layer 3（5分觸發）：出現符合方向的K棒型態（收紅站穩/收黑跌破/量增方向確認）\n'+
+    '進場條件：三層全部符合且方向一致。\n'+
+    '使用者目前的參數：\n'+engineCtx+'\n\n'+
+    '請依據上述規則分析截圖。價格轉為點數（AUD/USD × 10000，例如0.6500 = 6500）。'+
+    '圖表模糊或看不清楚時 confidence 設 low。嚴格輸出JSON陣列，不加任何前綴後綴。';
+
+  var userPrompt='分析以上'+aiImages.length+'張澳幣期貨K線圖，依照三重確認框架判斷，回傳JSON陣列：\n'+
+    '[{\n'+
+    '  "period": "週期",\n'+
+    '  "bias": "bull/bear/neutral",\n'+
+    '  "biasReason": "50字以內說明，明確引用圖中可見的價格位置",\n'+
+    '  "layer1": {"result": "bull/bear/neutral/unknown", "reason": "日線方向判斷依據"},\n'+
+    '  "layer2": {"result": "bull/bear/neutral/unknown", "reason": "15分結構判斷依據"},\n'+
+    '  "layer3": {"result": "bull/bear/neutral/unknown", "reason": "5分觸發型態"},\n'+
+    '  "engineSignal": "go_long/go_short/wait",\n'+
+    '  "currentPrice": 點數或null,\n'+
+    '  "openRangeHigh": 點數或null,\n'+
+    '  "openRangeLow": 點數或null,\n'+
+    '  "prevDayHigh": 點數或null,\n'+
+    '  "prevDayLow": 點數或null,\n'+
+    '  "kPatterns": ["收紅站穩"/"收黑跌破"/"假突破插針"/"量增↑"/"量縮↓"],\n'+
+    '  "confidence": "high/medium/low",\n'+
+    '  "notes": "補充觀察或警示"\n'+
+    '}]';
+
   var content=[];
   aiImages.forEach(function(img,i){
     content.push({type:'text',text:'圖 '+(i+1)+'（'+img.period+'）：'});
     content.push({type:'image',source:{type:'base64',media_type:img.type,data:img.data}});
   });
-  content.push({type:'text',text:'分析以上'+aiImages.length+'張澳幣期貨K線圖，回傳JSON陣列（不加任何說明文字）：\n[{"period":"週期","bias":"bull/bear/neutral","biasReason":"50字以內","currentPrice":點數或null,"openRangeHigh":點數或null,"openRangeLow":點數或null,"prevDayHigh":點數或null,"prevDayLow":點數或null,"kPatterns":[],"confidence":"high/medium/low","notes":"補充"}]'});
+  content.push({type:'text',text:userPrompt});
+
   try{
     var resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'x-api-key':CFG.apiKey,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:2048,
-        system:'你是澳幣期貨技術分析助手。分析K線圖輸出結構化JSON。只描述客觀技術現象，不做買賣建議。價格轉為點數（AUD/USD×10000）。圖表模糊時confidence設low。嚴格輸出JSON陣列，不加前綴後綴。',
+      body:JSON.stringify({model:CFG.model||'claude-sonnet-5',max_tokens:3000,
+        system:sysPrompt,
         messages:[{role:'user',content:content}]})
     });
     if(!resp.ok){var err=await resp.json();throw new Error(err.error&&err.error.message||'HTTP '+resp.status);}
@@ -913,24 +966,39 @@ async function analyzeImages(){
     btn.disabled=false;btn.textContent='🤖 開始 AI 判讀';
   }
 }
+
 function renderAIResults(results){
   var resEl=document.getElementById('ai-res');
   var bLblMap={bull:'偏多',bear:'偏空',neutral:'中性'};
   var bClsMap={bull:'vp',bear:'vn',neutral:''};
   var confLbl={high:'高',medium:'中',low:'低'};
   var confCls={high:'vp',medium:'',low:'vn'};
-  resEl.innerHTML='<div style="font-size:12px;color:var(--txd);margin:10px 0 6px">AI 判讀結果：</div>'+
-  results.map(function(r,i){
+  var sigMap={go_long:'✅ GO 做多',go_short:'✅ GO 做空',wait:'⏸ 觀望'};
+  var sigCls={go_long:'vp',go_short:'vn',wait:''};
+  var lrLbl={bull:'偏多',bear:'偏空',neutral:'中性',unknown:'?'};
+  var lrCls={bull:'ebadge ebadge-bull',bear:'ebadge ebadge-bear',neutral:'ebadge ebadge-ntl',unknown:'ebadge ebadge-none'};
+  resEl.innerHTML='<div style="font-size:12px;color:var(--txd);margin:10px 0 6px">AI 判讀結果（依三重確認框架）：</div>'+
+  results.map(function(r){
     var pat=(r.kPatterns||[]).join('、')||'—';
+    var l1=r.layer1||{result:'unknown',reason:'—'};
+    var l2=r.layer2||{result:'unknown',reason:'—'};
+    var l3=r.layer3||{result:'unknown',reason:'—'};
+    var sig=r.engineSignal||'wait';
     return'<div class="ai-res-item">'+
       '<div class="ai-res-hd">'+
         '<span class="ai-period-tag">'+r.period+'</span>'+
-        '<span class="'+bClsMap[r.bias]+'" style="font-weight:700">'+(bLblMap[r.bias]||'—')+'</span>'+
+        '<span class="'+(sigCls[sig]||'')+'" style="font-weight:800;font-size:14px">'+(sigMap[sig]||sig)+'</span>'+
         '<span style="font-size:11px;color:var(--txd)">信心：<span class="'+confCls[r.confidence]+'">'+(confLbl[r.confidence]||r.confidence)+'</span></span>'+
       '</div>'+
-      '<div style="font-size:12px;color:var(--txd);margin-bottom:6px">'+(r.biasReason||'')+'</div>'+
-      (r.notes?'<div style="font-size:11px;color:var(--yw);margin-bottom:6px">'+r.notes+'</div>':'')+
+      '<div style="font-size:12px;margin-bottom:8px;color:var(--txd)">'+(r.biasReason||'')+'</div>'+
+      // 3-layer mini display
+      '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">'+
+        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l1.result]+'">①日線 '+lrLbl[l1.result]+'</span><span style="color:var(--txd)">'+l1.reason+'</span></div>'+
+        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l2.result]+'">②結構 '+lrLbl[l2.result]+'</span><span style="color:var(--txd)">'+l2.reason+'</span></div>'+
+        '<div style="display:flex;align-items:center;gap:6px;font-size:12px"><span class="'+lrCls[l3.result]+'">③觸發 '+lrLbl[l3.result]+'</span><span style="color:var(--txd)">'+l3.reason+'</span></div>'+
+      '</div>'+
       '<div style="font-size:11px;color:var(--txd);margin-bottom:6px">K棒型態：'+pat+'</div>'+
+      (r.notes?'<div style="font-size:11px;color:var(--yw);margin-bottom:6px">⚠ '+r.notes+'</div>':'')+
       '<button class="btn btc bsm" onclick="applyAIResult(\''+encodeURIComponent(JSON.stringify(r))+'\')">套用此結果</button>'+
     '</div>';
   }).join('');
