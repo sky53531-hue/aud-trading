@@ -981,6 +981,34 @@ async function detectGeminiModel(){
   }
 }
 
+function parseAIJson(t){
+  if(!t)return null;
+  try{return JSON.parse(t);}catch(e){}
+  var m=t.match(/\{[\s\S]*\}/);
+  if(m){try{return JSON.parse(m[0]);}catch(e){}}
+  // Repair truncated JSON: close open string/containers, else drop the last field and retry
+  var s=t.indexOf('{');
+  if(s<0)return null;
+  var frag=t.slice(s);
+  for(var n=0;n<40;n++){
+    var inStr=false,esc=false,stack=[];
+    for(var i=0;i<frag.length;i++){
+      var c=frag[i];
+      if(inStr){if(esc)esc=false;else if(c==='\\')esc=true;else if(c==='"')inStr=false;continue;}
+      if(c==='"')inStr=true;
+      else if(c==='{')stack.push('}');
+      else if(c==='[')stack.push(']');
+      else if(c==='}'||c===']')stack.pop();
+    }
+    var cand=(frag+(inStr?'"':'')).replace(/[,:]\s*$/,'');
+    try{return JSON.parse(cand+stack.reverse().join(''));}catch(e){}
+    var cut=frag.lastIndexOf(',');
+    if(cut<=0)break;
+    frag=frag.slice(0,cut);
+  }
+  return null;
+}
+
 async function analyzeImages(){
   var provider=CFG.aiProvider||'gemini';
   if(provider==='gemini'&&!CFG.geminiKey){tip('請先在設定中輸入 Google Gemini API Key');return;}
@@ -1011,7 +1039,7 @@ async function analyzeImages(){
       var gemAltAdded=false,lastErrMsg='',data=null;
       for(var ti=0;ti<gemTries.length;ti++){
         var gt=gemTries[ti];
-        var gcfg={maxOutputTokens:1200,temperature:0.1};
+        var gcfg={maxOutputTokens:2000,temperature:0.1};
         if(gt.json)gcfg.responseMimeType='application/json';
         var gr=await fetch('https://generativelanguage.googleapis.com/'+gt.ver+'/models/'+gt.m+':generateContent?key='+CFG.geminiKey,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:parts}],generationConfig:gcfg})});
         if(gr.ok){data=await gr.json();break;}
@@ -1051,10 +1079,8 @@ async function analyzeImages(){
       var data=await resp.json();
       text=data.content[0].text.trim();
     }
-    var m=text.match(/\{[\s\S]*\}/);
-    if(!m)throw new Error('AI 回應格式錯誤（回傳：'+text.slice(0,80)+'）');
-    var result;
-    try{result=JSON.parse(m[0]);}catch(pe){throw new Error('JSON解析失敗：'+text.slice(0,80));}
+    var result=parseAIJson(text);
+    if(!result)throw new Error('AI 回應格式錯誤（回傳：'+text.slice(0,120)+'）');
     renderAIResult(result);
   }catch(e){
     resEl.innerHTML='<div style="padding:12px;color:var(--rd);font-size:13px;border-radius:8px;background:rgba(248,81,73,.1)">❌ 判讀失敗：'+e.message+'</div>';
