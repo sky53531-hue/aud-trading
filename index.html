@@ -1027,7 +1027,9 @@ async function analyzeImages(){
     '嚴格規則：只能根據實際收到的圖表判讀，絕對不可推測或虛構未提供的時間框架。沒有對應圖表的層級必須回傳 result:"unknown"、reason:"未提供該時間框架"。只要任一層為 unknown，finalSignal 一律為 wait。只輸出JSON，不加任何文字。';
 
   var userPrompt='本次只提供這些時間框架：'+tfList+'（共'+aiImages.length+'張）。L1看日線、L2看15分、L3看5分；上述清單沒有的時間框架，該層必須是 unknown。'+
-    '數值只填圖上實際看得到的，讀不到就填 null。輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"waitReason":null}';
+    'kPatterns 必填：從這5個詞挑出5分K圖上實際出現的型態，用詞必須完全一致：收紅站穩、收黑跌破、假突破插針、量增↑、量縮↓。收黑跌破代表空方觸發、收紅站穩代表多方觸發。沒有5分圖才回空陣列[]。'+
+    '請盡力從圖上讀出這些數值（決策引擎需要）：prevDayHigh/prevDayLow 取日線圖前一根K棒的最高/最低；openRangeHigh/openRangeLow 取15分圖當日開盤第一根K棒的最高/最低；todayHigh/todayLow 取當日至今最高/最低；真的讀不到才填 null。'+
+    '輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"kPatterns":[],"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"riskNote":null,"waitReason":null}';
 
   try{
     var text='';
