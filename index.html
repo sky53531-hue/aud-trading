@@ -1021,9 +1021,13 @@ async function analyzeImages(){
   btn.disabled=true;btn.textContent='⏳ 分析中...';
   var resEl=document.getElementById('ai-res');resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 正在綜合分析 '+aiImages.length+' 張圖表...</div>';resEl.style.display='block';
 
-  var sysPrompt='AUD/USD期貨當沖分析。三重確認策略：L1日線突破前日高偏多/跌破前日低偏空；L2站上開盤區間高偏多/跌破低偏空；L3有5分鐘觸發K棒。三層同向→GO，否則→wait。只輸出JSON，不加任何文字。';
+  var tfList=aiImages.map(function(x){return x.period;}).join('、');
 
-  var userPrompt='分析這'+aiImages.length+'張K線圖，輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral","reason":"10字"},"layer2":{"result":"bull/bear/neutral","reason":"10字"},"layer3":{"result":"bull/bear/neutral","reason":"10字"},"currentPrice":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"waitReason":null}';
+  var sysPrompt='AUD/USD期貨當沖分析。三重確認策略：L1日線突破前日高偏多/跌破前日低偏空；L2站上開盤區間高偏多/跌破低偏空；L3有5分鐘觸發K棒。三層同向才GO，否則wait。'+
+    '嚴格規則：只能根據實際收到的圖表判讀，絕對不可推測或虛構未提供的時間框架。沒有對應圖表的層級必須回傳 result:"unknown"、reason:"未提供該時間框架"。只要任一層為 unknown，finalSignal 一律為 wait。只輸出JSON，不加任何文字。';
+
+  var userPrompt='本次只提供這些時間框架：'+tfList+'（共'+aiImages.length+'張）。L1看日線、L2看15分、L3看5分；上述清單沒有的時間框架，該層必須是 unknown。'+
+    '數值只填圖上實際看得到的，讀不到就填 null。輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"waitReason":null}';
 
   try{
     var text='';
@@ -1106,9 +1110,9 @@ function renderAIResult(r){
   var sig=r.finalSignal||'wait';
   var confLbl={high:'高',medium:'中',low:'低'};
   var confCls={high:'vp',medium:'yw',low:'vn'};
-  var lrLbl={bull:'偏多 ▲',bear:'偏空 ▼',neutral:'中性 —'};
-  var lrBg={bull:'rgba(63,185,80,.15)',bear:'rgba(248,81,73,.15)',neutral:'rgba(139,148,158,.1)'};
-  var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)'};
+  var lrLbl={bull:'偏多 ▲',bear:'偏空 ▼',neutral:'中性 —',unknown:'無資料 ?'};
+  var lrBg={bull:'rgba(63,185,80,.15)',bear:'rgba(248,81,73,.15)',neutral:'rgba(139,148,158,.1)',unknown:'rgba(139,148,158,.05)'};
+  var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)',unknown:'var(--txd)'};
 
   var sigHTML,sigBg;
   if(sig==='go_long'){
@@ -1125,7 +1129,8 @@ function renderAIResult(r){
   function layerRow(num,title,l){
     if(!l)return'';
     var res=l.result||'neutral';
-    return'<div style="padding:10px 12px;border-radius:8px;background:'+lrBg[res]+';margin-bottom:6px">'+
+    if(!lrLbl[res])res='neutral';
+    return'<div style="padding:10px 12px;border-radius:8px;background:'+lrBg[res]+';margin-bottom:6px'+(res==='unknown'?';opacity:.55;border:1px dashed var(--br)':'')+'">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
         '<span style="font-size:11px;font-weight:800;color:var(--txd)">'+num+'</span>'+
         '<span style="font-weight:700;font-size:13px">'+title+'</span>'+
@@ -1138,6 +1143,8 @@ function renderAIResult(r){
   var pat=(r.kPatterns||[]).join('、')||'—';
   var prices=[];
   if(r.currentPrice)prices.push('目前 '+r.currentPrice);
+  if(r.todayHigh)prices.push('今日高 '+r.todayHigh);
+  if(r.todayLow)prices.push('今日低 '+r.todayLow);
   if(r.prevDayHigh)prices.push('前日高 '+r.prevDayHigh);
   if(r.prevDayLow)prices.push('前日低 '+r.prevDayLow);
   if(r.openRangeHigh)prices.push('開盤區間 '+r.openRangeHigh+'–'+(r.openRangeLow||'?'));
@@ -1175,6 +1182,8 @@ function renderAIResult(r){
 function applyAIResult(encoded){
   var r=JSON.parse(decodeURIComponent(encoded));
   if(r.currentPrice)document.getElementById('e-cur').value=r.currentPrice;
+  if(r.todayHigh)document.getElementById('e-tdh').value=r.todayHigh;
+  if(r.todayLow)document.getElementById('e-tdl').value=r.todayLow;
   if(r.openRangeHigh)document.getElementById('or-h').value=r.openRangeHigh;
   if(r.openRangeLow)document.getElementById('or-l').value=r.openRangeLow;
   if(r.prevDayHigh)document.getElementById('pd-h').value=r.prevDayHigh;
