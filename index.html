@@ -270,6 +270,7 @@ select option{background:var(--sf2)}
       <div class="fd"><label>前日高</label><input type="number" id="pd-h" placeholder="6550" oninput="savePlan();runEngine()"></div>
       <div class="fd" style="margin-bottom:0"><label>前日低</label><input type="number" id="pd-l" placeholder="6480" oninput="savePlan();runEngine()"></div>
     </div>
+    <div class="note-sm" style="color:var(--yw)">✋ 這四個數字沒印在K線圖上，AI 讀不到，請手動填寫。每天開盤後填一次即可，之後 AI 分析會沿用。</div>
     <div class="note-sm">💡 點數 = AUD/USD × 10000　1點 = NT$<span id="ptv">300</span></div>
   </div>
 
@@ -1024,6 +1025,17 @@ async function analyzeImages(){
   btn.disabled=true;btn.textContent='⏳ 分析中...';
   var resEl=document.getElementById('ai-res');resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 正在綜合分析 '+aiImages.length+' 張圖表...</div>';resEl.style.display='block';
 
+  // These levels are not printed on the chart, so the model cannot read them — get them up front
+  var needFirst=[];
+  if(!parseFloat(document.getElementById('pd-h').value))needFirst.push('前日高');
+  if(!parseFloat(document.getElementById('pd-l').value))needFirst.push('前日低');
+  if(!parseFloat(document.getElementById('or-h').value))needFirst.push('開盤區間高');
+  if(!parseFloat(document.getElementById('or-l').value))needFirst.push('開盤區間低');
+  if(needFirst.length&&!confirm('還沒填：'+needFirst.join('、')+'\n\n這些數字沒印在K線圖上，AI 讀不到，必須你手動填（在「15分鐘結構」區塊，每天填一次即可）。\n\n沒填的話日線方向/15分結構算不出來，只會得到觀望。\n\n仍要繼續分析嗎？')){
+    document.getElementById('pd-h').scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
+
   // Every upload defaults to 15分, so flag duplicates the user may have forgotten to relabel
   var tfSeen={},tfDup=[];
   aiImages.forEach(function(x){if(tfSeen[x.period]&&tfDup.indexOf(x.period)<0)tfDup.push(x.period);tfSeen[x.period]=1;});
@@ -1031,16 +1043,18 @@ async function analyzeImages(){
 
   var tfList=aiImages.map(function(x){return x.period;}).join('、');
 
-  var sysPrompt='AUD/USD期貨當沖分析。三重確認策略：L1日線突破前日高偏多/跌破前日低偏空；L2站上開盤區間高偏多/跌破低偏空；L3有5分鐘觸發K棒。三層同向才GO，否則wait。'+
-    '嚴格規則：只能根據實際收到的圖表判讀，絕對不可推測或虛構未提供的時間框架。沒有對應圖表的層級必須回傳 result:"unknown"、reason:"未提供該時間框架"。只要任一層為 unknown，finalSignal 一律為 wait。只輸出JSON，不加任何文字。';
+  var sysPrompt='你是K線圖的讀值工具，不是分析師。你唯一的工作是抄下圖上「以文字印出來」的數字，以及描述5分K最後幾根的型態。'+
+    '絕對禁止：用眼睛量K棒高度去推算價格、推測沒印出來的數字、或做多空方向判斷。方向由程式計算，不用你判斷。只輸出JSON，不加任何文字。';
 
-  var userPrompt='本次只提供這些時間框架：'+tfList+'（共'+aiImages.length+'張）。L1看日線、L2看15分、L3看5分；上述清單沒有的時間框架，該層必須是 unknown。'+
-    'kPatterns 必填：從這5個詞挑出5分K圖上實際出現的型態，用詞必須完全一致：收紅站穩、收黑跌破、假突破插針、量增↑、量縮↓。收黑跌破代表空方觸發、收紅站穩代表多方觸發。沒有5分圖才回空陣列[]。'+
-    '讀值規則（最重要）：日線圖最右邊那根K棒是「今天」，它左邊緊鄰的那一根才是「前一交易日」。prevDayHigh/prevDayLow 一定要取左邊那根（前一交易日）的最高/最低，絕對不可填今天那根的數字。'+
-    '自我檢查：若你填出來的 prevDayHigh 等於 todayHigh、或 prevDayLow 等於 todayLow，就代表讀錯了，必須重看日線圖改正。'+
-    'todayHigh/todayLow 取今天那根的最高/最低。openRangeHigh/openRangeLow 取15分圖當日開盤第一根K棒的最高/最低。任何一個讀不到就填 null，不要拿別的數字頂替。'+
-    'imagesSeen 必填：逐張回報你實際收到的圖，n=圖號，tf=該圖標示的時間框架，readable=你是否真的看得清楚這張K線圖的價格與K棒。不可省略任何一張。'+
-    '輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","imagesSeen":[{"n":1,"tf":"日線","readable":true}],"layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"kPatterns":[],"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"riskNote":null,"waitReason":null}';
+  var userPrompt='本次提供的時間框架：'+tfList+'（共'+aiImages.length+'張）。\n'+
+    '【讀值規則】看盤軟體上方那一列 開/高/低/收 是「當前那一根K棒」的數值，那是唯一可信的數字來源。\n'+
+    '- currentPrice：日線圖的「收」，或最上方的大字報價。\n'+
+    '- todayHigh / todayLow：日線圖那一列的「高」與「低」（那是今天這根的高低）。\n'+
+    '- prevDayHigh / prevDayLow：前一交易日的高低點。這個數字通常不會印在圖上，你無法從K棒高度量出來。除非圖上真的有印出該數字，否則一律填 null。寧可填 null 也不要猜。\n'+
+    '- openRangeHigh / openRangeLow：當日開盤第一根15分K的高低。同樣地，除非圖上明確印出，否則填 null。\n'+
+    '【kPatterns】看5分K圖最後3-5根，從這5個詞挑出實際出現的（用詞須完全一致）：收紅站穩、收黑跌破、假突破插針、量增↑、量縮↓。沒有5分圖就回 []。\n'+
+    '【imagesSeen】逐張回報，n=圖號，tf=該圖標示的時間框架，readable=是否看得清楚。不可漏任何一張。\n'+
+    '輸出JSON：{"imagesSeen":[{"n":1,"tf":"日線","readable":true}],"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"kPatterns":[],"note":"20字內描述5分K近期型態"}';
 
   try{
     var text='';
@@ -1120,29 +1134,51 @@ async function analyzeImages(){
 
 function renderAIResult(r){
   var resEl=document.getElementById('ai-res');
-  var sig=r.finalSignal||'wait';
-  var confLbl={high:'高',medium:'中',low:'低'};
-  var confCls={high:'vp',medium:'yw',low:'vn'};
-  var lrLbl={bull:'偏多 ▲',bear:'偏空 ▼',neutral:'中性 —',unknown:'無資料 ?'};
-  var lrBg={bull:'rgba(63,185,80,.15)',bear:'rgba(248,81,73,.15)',neutral:'rgba(139,148,158,.1)',unknown:'rgba(139,148,158,.05)'};
-  var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)',unknown:'var(--txd)'};
+  var lrLbl={bull:'偏多 ▲',bear:'偏空 ▼',neutral:'中性 —',none:'待補資料'};
+  var lrBg={bull:'rgba(63,185,80,.15)',bear:'rgba(248,81,73,.15)',neutral:'rgba(139,148,158,.1)',none:'rgba(139,148,158,.05)'};
+  var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)',none:'var(--txd)'};
+
+  // The verdict is computed, never taken from the model — it reads numbers, the engine decides
+  function num(v,fallbackId){
+    var n=Number(v);
+    if(v!==null&&v!==undefined&&v!==''&&!isNaN(n))return n;
+    return parseFloat(document.getElementById(fallbackId).value)||0;
+  }
+  var cP=num(r.currentPrice,'e-cur');
+  var tH=Number(r.todayHigh),tL=Number(r.todayLow);
+  var aH=r.prevDayHigh,aL=r.prevDayLow;
+  if(aH&&tH&&Number(aH)===tH)aH=null;
+  if(aL&&tL&&Number(aL)===tL)aL=null;
+  var pH=num(aH,'pd-h'),pL=num(aL,'pd-l');
+  var oH=num(r.openRangeHigh,'or-h'),oL=num(r.openRangeLow,'or-l');
+  var pmapR={'收紅站穩':'bull_bar','收黑跌破':'bear_bar','假突破插針':'pin_bar','量增↑':'vol_up','量縮↓':'vol_down','量增':'vol_up','量縮':'vol_down'};
+  var kp=[];(r.kPatterns||[]).forEach(function(p){var k=pmapR[p];if(k&&kp.indexOf(k)<0)kp.push(k);});
+  var c1=calcLayer1(cP,pH,pL,PLAN.levels),c2=calcLayer2(cP,oH,oL),c3=calcLayer3(kp,c1.dir);
+  var cDirs=[];[c1,c2,c3].forEach(function(l){if(l.ok&&l.dir!=='neutral'&&cDirs.indexOf(l.dir)<0)cDirs.push(l.dir);});
+  var isGo=c1.ok&&c2.ok&&c3.ok&&cDirs.length===1;
+  var okN=[c1,c2,c3].filter(function(l){return l.ok;}).length;
 
   var sigHTML,sigBg;
-  if(sig==='go_long'){
+  if(isGo&&cDirs[0]==='bull'){
     sigHTML='<div style="font-size:28px;font-weight:900;color:var(--gn)">✅ GO 做多</div>';
     sigBg='rgba(63,185,80,.12)';
-  }else if(sig==='go_short'){
+  }else if(isGo&&cDirs[0]==='bear'){
     sigHTML='<div style="font-size:28px;font-weight:900;color:var(--rd)">✅ GO 做空</div>';
     sigBg='rgba(248,81,73,.12)';
   }else{
-    sigHTML='<div style="font-size:28px;font-weight:900;color:var(--txd)">⏸ 觀望</div>';
+    sigHTML='<div style="font-size:28px;font-weight:900;color:var(--txd)">⏸ 觀望 ('+okN+'/3)</div>';
     sigBg='rgba(139,148,158,.08)';
   }
+  var miss=[];
+  if(!c1.ok)miss.push('①日線方向');
+  if(!c2.ok)miss.push('②15分結構');
+  if(!c3.ok)miss.push('③5分觸發');
+  var summaryTxt=isGo?'三層同向，符合進場條件':(miss.length?'尚缺 '+miss.join('、'):'方向不一致');
 
-  function layerRow(num,title,l){
+  function layerRow(num_,title,l){
     if(!l)return'';
-    var res=l.result||'neutral';
-    if(!lrLbl[res])res='neutral';
+    var res=l.dir||'none';
+    if(!lrLbl[res])res='none';
     return'<div style="padding:10px 12px;border-radius:8px;background:'+lrBg[res]+';margin-bottom:6px'+(res==='unknown'?';opacity:.55;border:1px dashed var(--br)':'')+'">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
         '<span style="font-size:11px;font-weight:800;color:var(--txd)">'+num+'</span>'+
@@ -1177,35 +1213,37 @@ function renderAIResult(r){
   if(r.currentPrice)prices.push('目前 '+r.currentPrice);
   if(r.todayHigh)prices.push('今日高 '+r.todayHigh);
   if(r.todayLow)prices.push('今日低 '+r.todayLow);
-  if(r.prevDayHigh)prices.push('前日高 '+r.prevDayHigh);
-  if(r.prevDayLow)prices.push('前日低 '+r.prevDayLow);
-  if(r.openRangeHigh)prices.push('開盤區間 '+r.openRangeHigh+'–'+(r.openRangeLow||'?'));
+
+  // Levels the model cannot read off a chart image — flag them as manual input
+  var needManual=[];
+  if(!pH)needManual.push('前日高');
+  if(!pL)needManual.push('前日低');
+  if(!oH)needManual.push('開盤區間高');
+  if(!oL)needManual.push('開盤區間低');
+  var manualHTML=needManual.length?'<div style="margin-top:8px;padding:10px 12px;background:rgba(227,179,65,.1);border-radius:8px;font-size:12px;color:var(--yw);border:1px solid rgba(227,179,65,.3)">✋ 請手動填入：'+needManual.join('、')+'<div style="font-size:11px;margin-top:4px;opacity:.85">這些數字沒有印在圖上，AI 無法讀取。每天只需填一次。</div></div>':'';
 
   resEl.innerHTML=
-    // Main signal card
-    '<div style="border-radius:10px;overflow:hidden;border:2px solid '+(sig==='go_long'?'var(--gn)':sig==='go_short'?'var(--rd)':'var(--br)')+'">'+
+    // Main signal card — computed by the engine, not by the model
+    '<div style="border-radius:10px;overflow:hidden;border:2px solid '+(isGo?(cDirs[0]==='bull'?'var(--gn)':'var(--rd)'):'var(--br)')+'">'+
       '<div style="background:'+sigBg+';padding:16px;text-align:center">'+
         sigHTML+
-        '<div style="font-size:13px;color:var(--txd);margin-top:6px">'+(r.summary||'')+'</div>'+
-        '<div style="margin-top:8px;font-size:12px;color:var(--txd)">信心：<span class="'+(confCls[r.confidence]||'')+'"><strong>'+(confLbl[r.confidence]||r.confidence||'—')+'</strong></span></div>'+
+        '<div style="font-size:13px;color:var(--txd);margin-top:6px">'+summaryTxt+'</div>'+
       '</div>'+
-      // Wait reason
-      (sig==='wait'&&r.waitReason?'<div style="padding:10px 14px;background:rgba(227,179,65,.08);font-size:12px;color:var(--yw);border-top:1px solid var(--br)">缺少確認：'+r.waitReason+'</div>':'')+
     '</div>'+
     // 3 layers
     '<div style="margin-top:10px">'+
-      layerRow('①','日線方向',r.layer1)+
-      layerRow('②','15分結構',r.layer2)+
-      layerRow('③','5分觸發',r.layer3)+
+      layerRow('①','日線方向',c1)+
+      layerRow('②','15分結構',c2)+
+      layerRow('③','5分觸發',c3)+
     '</div>'+
+    // Manual-input prompt
+    manualHTML+
     // Per-image read-back
     seenHTML+
     // Prices read from chart
     (prices.length?'<div style="padding:8px 12px;background:var(--sf2);border-radius:8px;font-size:12px;color:var(--txd);margin-top:6px">📊 從圖讀取：'+prices.join('　')+'</div>':'')+
     // K patterns
-    '<div style="font-size:12px;color:var(--txd);margin-top:6px;padding:0 2px">5分型態：'+pat+'</div>'+
-    // Risk note
-    (r.riskNote?'<div style="margin-top:8px;padding:8px 12px;background:rgba(227,179,65,.1);border-radius:8px;font-size:12px;color:var(--yw);border:1px solid rgba(227,179,65,.3)">⚠ '+r.riskNote+'</div>':'')+
+    '<div style="font-size:12px;color:var(--txd);margin-top:6px;padding:0 2px">5分型態：'+pat+(r.note?'　｜　'+r.note:'')+'</div>'+
     // Apply button
     '<div style="margin-top:10px;display:flex;gap:8px">'+
       '<button class="btn btc bsm" style="flex:1" onclick="applyAIResult(\''+encodeURIComponent(JSON.stringify(r))+'\')">套用數值至決策引擎</button>'+
@@ -1226,9 +1264,6 @@ function applyAIResult(encoded){
   if(pdL&&r.todayLow&&Number(pdL)===Number(r.todayLow)){pdL=null;echoed=true;}
   if(pdH)document.getElementById('pd-h').value=pdH;
   if(pdL)document.getElementById('pd-l').value=pdL;
-  // Auto-set bias from finalSignal
-  if(r.finalSignal==='go_long'){PLAN.bias='bull';PLAN.biasManual=false;renderBiasUI();}
-  else if(r.finalSignal==='go_short'){PLAN.bias='bear';PLAN.biasManual=false;renderBiasUI();}
   if(r.kPatterns&&r.kPatterns.length){
     var pmap={'收紅站穩':'bull_bar','收黑跌破':'bear_bar','假突破插針':'pin_bar','量增↑':'vol_up','量縮↓':'vol_down','量增':'vol_up','量縮':'vol_down'};
     PLAN.kPattern=[];
