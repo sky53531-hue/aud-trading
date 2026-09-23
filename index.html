@@ -661,8 +661,8 @@ function calcLayer1(curP,pdH,pdL,levels){
     if(above>below)return{dir:'bull',ok:true,reason:'站上多數關卡（'+above+'/'+levels.length+'）'};
     if(below>above)return{dir:'bear',ok:true,reason:'位於多數關卡下方（'+below+'/'+levels.length+'）'};
   }
-  if(pdH&&pdL)return{dir:'neutral',ok:false,reason:'介於前日高低之間（'+pdL+'–'+pdH+'）'};
-  return{dir:'neutral',ok:false,reason:'資料不足'};
+  if(pdH&&pdL)return{dir:'neutral',ok:false,reason:'目前 '+curP+' 介於前日高低之間（'+pdL+'–'+pdH+'），方向未定'};
+  return{dir:'neutral',ok:false,reason:'請填入前日高與前日低（AI 讀不到時需手動輸入）'};
 }
 function calcLayer2(curP,orH,orL){
   if(!curP||!orH||!orL)return{dir:'none',ok:false,reason:'尚未輸入開盤區間（15分鐘結構頁）'};
@@ -671,7 +671,7 @@ function calcLayer2(curP,orH,orL){
   return{dir:'neutral',ok:false,reason:'仍在開盤區間內整理（'+orL+'–'+orH+'）'};
 }
 function calcLayer3(patterns,dir){
-  if(!patterns||!patterns.length)return{dir:'none',ok:false,reason:'未選擇5分K棒型態'};
+  if(!patterns||!patterns.length)return{dir:'none',ok:false,reason:'尚未選擇5分K棒型態（請點上方型態按鈕）'};
   var hasBull=patterns.indexOf('bull_bar')>=0;
   var hasBear=patterns.indexOf('bear_bar')>=0;
   var hasPin=patterns.indexOf('pin_bar')>=0;
@@ -679,7 +679,10 @@ function calcLayer3(patterns,dir){
   if(dir==='bull'&&hasBull)return{dir:'bull',ok:true,reason:'收紅站穩'+(hasVolUp?' + 量增（強觸發）':'（弱觸發）')};
   if(dir==='bear'&&hasBear)return{dir:'bear',ok:true,reason:'收黑跌破'+(hasVolUp?' + 量增（強觸發）':'（弱觸發）')};
   if(hasPin)return{dir:'neutral',ok:false,reason:'假突破插針，方向待確認'};
-  return{dir:'none',ok:false,reason:'無符合偏向方向的觸發型態'};
+  if(dir!=='bull'&&dir!=='bear')return{dir:'none',ok:false,reason:'要先有①日線方向才能比對觸發（目前日線未定方向）'};
+  if(dir==='bull'&&hasBear)return{dir:'none',ok:false,reason:'方向相反：日線偏多，但5分是收黑跌破'};
+  if(dir==='bear'&&hasBull)return{dir:'none',ok:false,reason:'方向相反：日線偏空，但5分是收紅站穩'};
+  return{dir:'none',ok:false,reason:'只選了量增/量縮，還缺「收紅站穩」或「收黑跌破」'};
 }
 
 function runEngine(){
@@ -1021,6 +1024,11 @@ async function analyzeImages(){
   btn.disabled=true;btn.textContent='⏳ 分析中...';
   var resEl=document.getElementById('ai-res');resEl.innerHTML='<div style="padding:16px;text-align:center;color:var(--txd);font-size:13px">🔍 正在綜合分析 '+aiImages.length+' 張圖表...</div>';resEl.style.display='block';
 
+  // Every upload defaults to 15分, so flag duplicates the user may have forgotten to relabel
+  var tfSeen={},tfDup=[];
+  aiImages.forEach(function(x){if(tfSeen[x.period]&&tfDup.indexOf(x.period)<0)tfDup.push(x.period);tfSeen[x.period]=1;});
+  if(tfDup.length)tip('⚠ 有 '+tfDup.length+' 個重複的時間框架標籤（'+tfDup.join('、')+'），請確認每張圖的標籤');
+
   var tfList=aiImages.map(function(x){return x.period;}).join('、');
 
   var sysPrompt='AUD/USD期貨當沖分析。三重確認策略：L1日線突破前日高偏多/跌破前日低偏空；L2站上開盤區間高偏多/跌破低偏空；L3有5分鐘觸發K棒。三層同向才GO，否則wait。'+
@@ -1028,8 +1036,11 @@ async function analyzeImages(){
 
   var userPrompt='本次只提供這些時間框架：'+tfList+'（共'+aiImages.length+'張）。L1看日線、L2看15分、L3看5分；上述清單沒有的時間框架，該層必須是 unknown。'+
     'kPatterns 必填：從這5個詞挑出5分K圖上實際出現的型態，用詞必須完全一致：收紅站穩、收黑跌破、假突破插針、量增↑、量縮↓。收黑跌破代表空方觸發、收紅站穩代表多方觸發。沒有5分圖才回空陣列[]。'+
-    '請盡力從圖上讀出這些數值（決策引擎需要）：prevDayHigh/prevDayLow 取日線圖前一根K棒的最高/最低；openRangeHigh/openRangeLow 取15分圖當日開盤第一根K棒的最高/最低；todayHigh/todayLow 取當日至今最高/最低；真的讀不到才填 null。'+
-    '輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"kPatterns":[],"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"riskNote":null,"waitReason":null}';
+    '讀值規則（最重要）：日線圖最右邊那根K棒是「今天」，它左邊緊鄰的那一根才是「前一交易日」。prevDayHigh/prevDayLow 一定要取左邊那根（前一交易日）的最高/最低，絕對不可填今天那根的數字。'+
+    '自我檢查：若你填出來的 prevDayHigh 等於 todayHigh、或 prevDayLow 等於 todayLow，就代表讀錯了，必須重看日線圖改正。'+
+    'todayHigh/todayLow 取今天那根的最高/最低。openRangeHigh/openRangeLow 取15分圖當日開盤第一根K棒的最高/最低。任何一個讀不到就填 null，不要拿別的數字頂替。'+
+    'imagesSeen 必填：逐張回報你實際收到的圖，n=圖號，tf=該圖標示的時間框架，readable=你是否真的看得清楚這張K線圖的價格與K棒。不可省略任何一張。'+
+    '輸出JSON：{"finalSignal":"go_long/go_short/wait","confidence":"high/medium/low","summary":"20字結論","imagesSeen":[{"n":1,"tf":"日線","readable":true}],"layer1":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer2":{"result":"bull/bear/neutral/unknown","reason":"10字"},"layer3":{"result":"bull/bear/neutral/unknown","reason":"10字"},"kPatterns":[],"currentPrice":null,"todayHigh":null,"todayLow":null,"prevDayHigh":null,"prevDayLow":null,"openRangeHigh":null,"openRangeLow":null,"riskNote":null,"waitReason":null}';
 
   try{
     var text='';
@@ -1142,6 +1153,25 @@ function renderAIResult(r){
     '</div>';
   }
 
+  // Cross-check the AI's own per-image report against the timeframes actually uploaded
+  var seenHTML='';
+  var seen=r.imagesSeen;
+  if(seen&&seen.length){
+    var allGood=seen.length===aiImages.length;
+    var cells=aiImages.map(function(img,i){
+      var s=null;
+      for(var k=0;k<seen.length;k++){if(Number(seen[k].n)===i+1){s=seen[k];break;}}
+      var okTf=!!s&&String(s.tf||'').indexOf(img.period)>=0;
+      var okRd=!!s&&s.readable!==false;
+      var good=okTf&&okRd;
+      if(!good)allGood=false;
+      var why=!s?'未回報':(!okTf?'認成'+(s.tf||'?'):(!okRd?'看不清':''));
+      return'<span style="color:'+(good?'var(--gn)':'var(--rd)')+'">'+img.period+(good?' ✓':' ✗'+why)+'</span>';
+    }).join('　');
+    seenHTML='<div style="padding:8px 12px;background:var(--sf2);border-radius:8px;font-size:12px;color:var(--txd);margin-top:6px'+(allGood?'':';border:1px solid var(--rd)')+'">'+
+      (allGood?'🖼 AI 已正確讀到全部 '+aiImages.length+' 張：':'⚠ 圖表對應有問題：')+cells+'</div>';
+  }
+
   var pat=(r.kPatterns||[]).join('、')||'—';
   var prices=[];
   if(r.currentPrice)prices.push('目前 '+r.currentPrice);
@@ -1168,6 +1198,8 @@ function renderAIResult(r){
       layerRow('②','15分結構',r.layer2)+
       layerRow('③','5分觸發',r.layer3)+
     '</div>'+
+    // Per-image read-back
+    seenHTML+
     // Prices read from chart
     (prices.length?'<div style="padding:8px 12px;background:var(--sf2);border-radius:8px;font-size:12px;color:var(--txd);margin-top:6px">📊 從圖讀取：'+prices.join('　')+'</div>':'')+
     // K patterns
@@ -1188,8 +1220,12 @@ function applyAIResult(encoded){
   if(r.todayLow)document.getElementById('e-tdl').value=r.todayLow;
   if(r.openRangeHigh)document.getElementById('or-h').value=r.openRangeHigh;
   if(r.openRangeLow)document.getElementById('or-l').value=r.openRangeLow;
-  if(r.prevDayHigh)document.getElementById('pd-h').value=r.prevDayHigh;
-  if(r.prevDayLow)document.getElementById('pd-l').value=r.prevDayLow;
+  // AI commonly misreads the daily chart and echoes today's range as the previous day's
+  var pdH=r.prevDayHigh,pdL=r.prevDayLow,echoed=false;
+  if(pdH&&r.todayHigh&&Number(pdH)===Number(r.todayHigh)){pdH=null;echoed=true;}
+  if(pdL&&r.todayLow&&Number(pdL)===Number(r.todayLow)){pdL=null;echoed=true;}
+  if(pdH)document.getElementById('pd-h').value=pdH;
+  if(pdL)document.getElementById('pd-l').value=pdL;
   // Auto-set bias from finalSignal
   if(r.finalSignal==='go_long'){PLAN.bias='bull';PLAN.biasManual=false;renderBiasUI();}
   else if(r.finalSignal==='go_short'){PLAN.bias='bear';PLAN.biasManual=false;renderBiasUI();}
@@ -1200,7 +1236,7 @@ function applyAIResult(encoded){
     renderPatternBtns();
   }
   savePlan();runEngine();
-  tip('✅ AI 數值已套用，決策引擎已更新');
+  tip(echoed?'⚠ AI 把前日高低讀成今日高低，已略過該欄，請手動填入':'✅ AI 數值已套用，決策引擎已更新');
 }
 
 // Paste & drag-drop

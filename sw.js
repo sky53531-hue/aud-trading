@@ -1,4 +1,4 @@
-var CACHE = 'aud-v12';
+var CACHE = 'aud-v13';
 var SHELL = ['./manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(e) {
