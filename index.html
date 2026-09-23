@@ -1139,18 +1139,18 @@ function renderAIResult(r){
   var lrColor={bull:'var(--gn)',bear:'var(--rd)',neutral:'var(--txd)',none:'var(--txd)'};
 
   // The verdict is computed, never taken from the model — it reads numbers, the engine decides
-  function num(v,fallbackId){
+  function pick(v,fallbackId){
     var n=Number(v);
     if(v!==null&&v!==undefined&&v!==''&&!isNaN(n))return n;
     return parseFloat(document.getElementById(fallbackId).value)||0;
   }
-  var cP=num(r.currentPrice,'e-cur');
+  var cP=pick(r.currentPrice,'e-cur');
   var tH=Number(r.todayHigh),tL=Number(r.todayLow);
   var aH=r.prevDayHigh,aL=r.prevDayLow;
   if(aH&&tH&&Number(aH)===tH)aH=null;
   if(aL&&tL&&Number(aL)===tL)aL=null;
-  var pH=num(aH,'pd-h'),pL=num(aL,'pd-l');
-  var oH=num(r.openRangeHigh,'or-h'),oL=num(r.openRangeLow,'or-l');
+  var pH=pick(aH,'pd-h'),pL=pick(aL,'pd-l');
+  var oH=pick(r.openRangeHigh,'or-h'),oL=pick(r.openRangeLow,'or-l');
   var pmapR={'收紅站穩':'bull_bar','收黑跌破':'bear_bar','假突破插針':'pin_bar','量增↑':'vol_up','量縮↓':'vol_down','量增':'vol_up','量縮':'vol_down'};
   var kp=[];(r.kPatterns||[]).forEach(function(p){var k=pmapR[p];if(k&&kp.indexOf(k)<0)kp.push(k);});
   var c1=calcLayer1(cP,pH,pL,PLAN.levels),c2=calcLayer2(cP,oH,oL),c3=calcLayer3(kp,c1.dir);
@@ -1175,7 +1175,7 @@ function renderAIResult(r){
   if(!c3.ok)miss.push('③5分觸發');
   var summaryTxt=isGo?'三層同向，符合進場條件':(miss.length?'尚缺 '+miss.join('、'):'方向不一致');
 
-  function layerRow(num_,title,l){
+  function layerRow(num,title,l){
     if(!l)return'';
     var res=l.dir||'none';
     if(!lrLbl[res])res='none';
